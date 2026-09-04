@@ -38,4 +38,11 @@ yarn-error.*
 
 # generated native folders
 /ios
+
 /android
+
+# generated maze preview bundle (rebuild with `node tools/build-maze-preview.js`)
+# ignoring the whole maze preview tool for now
+tools/maze-preview.bundle.js
+tools/build-maze-preview.js
+tools/maze-preview.html
