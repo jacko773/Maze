@@ -22,6 +22,16 @@ const HEAD_WIDTH_RATIO = 0.12;
 const HEAD_HALF_RATIO = 0.065;
 const THICKNESS_RATIO = 0.045;
 const PADDING_RATIO = 0.1;
+// On dense, high-level boards `cellSize` shrinks small enough that the ratio-based
+// thickness/head size above round to near-invisible hairlines. Below this cellSize
+// (roughly level ~45+, where boards are 28+ cols), a boosted ratio (with its own floor)
+// is used instead so arrows stay legible. Boards above the threshold (lower levels, big
+// cells) are completely unaffected - they keep using the normal ratios above.
+const SMALL_CELL_THRESHOLD_PX = 13;
+const SMALL_CELL_THICKNESS_RATIO = 0.065;
+const SMALL_CELL_HEAD_HALF_RATIO = 0.085;
+const MIN_THICKNESS_PX = 1.3;
+const MIN_HEAD_HALF_PX = 2.2;
 
 /**
  * Builds a single smooth vector shape for one arrow: a continuous centerline running from
@@ -38,9 +48,21 @@ export function buildArrowShape(
   direction: Direction,
   cellSize: number,
   origin: Cell,
+  // When true the tip reaches a full cell forward, landing on the NEXT cell's maze point,
+  // so the head spans point-to-point (head dot -> next dot). The board generator reserves
+  // that forward cell (keeps it empty) and Board only passes true when it is genuinely
+  // free, so this never overlaps another arrow. When false (edge arrows, or a contested
+  // cell already claimed by another head) the tip stops at this cell's leading edge.
+  extendToNextDot: boolean = false,
 ): ArrowShapeGeometry {
-  const thickness = cellSize * THICKNESS_RATIO;
-  const headHalf = cellSize * HEAD_HALF_RATIO;
+  const thickness =
+    cellSize < SMALL_CELL_THRESHOLD_PX
+      ? Math.max(cellSize * SMALL_CELL_THICKNESS_RATIO, MIN_THICKNESS_PX)
+      : cellSize * THICKNESS_RATIO;
+  const headHalf =
+    cellSize < SMALL_CELL_THRESHOLD_PX
+      ? Math.max(cellSize * SMALL_CELL_HEAD_HALF_RATIO, MIN_HEAD_HALF_PX)
+      : cellSize * HEAD_HALF_RATIO;
   const pad = cellSize * PADDING_RATIO;
 
   const centerX = (cell: Cell) =>
@@ -51,8 +73,12 @@ export function buildArrowShape(
   const headX = centerX(path[0]);
   const headY = centerY(path[0]);
   const [dx, dy] = DIRECTION_OFFSET[direction];
-  const tipX = headX + dx * (cellSize * 0.5);
-  const tipY = headY + dy * (cellSize * 0.5);
+  // Reach the next cell's maze point when that cell is reserved/free (extendToNextDot),
+  // so the head connects head dot -> next dot. Otherwise stop at this cell's leading
+  // edge so the head stays inside its own cell.
+  const headReach = extendToNextDot ? cellSize : cellSize * 0.5;
+  const tipX = headX + dx * headReach;
+  const tipY = headY + dy * headReach;
 
   // Perpendicular unit vector to `direction`, used to spread the arrowhead's two wings.
   const px = -dy;

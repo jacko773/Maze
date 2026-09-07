@@ -3,9 +3,17 @@ import { Animated, StyleSheet, View } from "react-native";
 import { ArrowCell, Cell } from "../game/types";
 import { theme } from "../theme/colors";
 import AnimatedArrowFrames from "./AnimatedArrowFrames";
-import { buildArrowFrames } from "./arrowFrames";
+import { buildArrowFrames, capFrames } from "./arrowFrames";
 
-const SLIDE_DURATION = 900;
+// The leave animation advances one whole-cell frame at a time, each rendered as its own SVG.
+// On big high-level boards a slide can span 100+ frames, which (a) lags when they all mount
+// at once and (b) gets crammed into too little time so the arrow flickers away. So the frame
+// count is capped (capFrames) and the duration scales with the (capped) frame count, clamped
+// so short arrows aren't sluggish and long ones stay smooth and visible.
+const MAX_LEAVE_FRAMES = 36;
+const MS_PER_FRAME = 50;
+const MIN_SLIDE_DURATION = 400;
+const MAX_SLIDE_DURATION = 1800;
 
 interface LeavingArrowTileProps {
   arrow: ArrowCell;
@@ -37,19 +45,24 @@ export default function LeavingArrowTile({
 
   const { frames, tMax } = useMemo(() => {
     const extensionSteps = Math.max(1, Math.round(travelDistance / size));
-    const framesLocal = buildArrowFrames(
+    const full = buildArrowFrames(
       arrow,
       tail,
       tail.length - 1 + extensionSteps,
     );
+    const framesLocal = capFrames(full, MAX_LEAVE_FRAMES);
     return { frames: framesLocal, tMax: framesLocal.length - 1 };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    const duration = Math.min(
+      MAX_SLIDE_DURATION,
+      Math.max(MIN_SLIDE_DURATION, (tMax + 1) * MS_PER_FRAME),
+    );
     Animated.timing(t, {
       toValue: tMax + 1,
-      duration: SLIDE_DURATION,
+      duration,
       useNativeDriver: true,
     }).start(() => onDone(arrow.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps

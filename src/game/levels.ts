@@ -2,10 +2,43 @@ import { LevelConfig, Difficulty } from "./types";
 import { getCustomLevelConfig } from "./levelConfigs";
 
 const MIN_SIZE = 6;
-const MAX_SIZE = 30; // was 25 - bumped so late-game boards can reach a dense puzzle-book
-// aesthetic (many arrows tightly packed). Zoom/pan on the board keeps cells tappable at
-// this size, and generation still stays fast (single-pass).
+const MAX_SIZE = 40; // grown from the original 35, but pulled back from a too-aggressive 45
+// that mounted ~500 SVG arrows at once and made high levels appear in visible chunks.
+// Forward-cell collision caps head density at ~14%, so bigger boards are how we keep a
+// satisfying arrow count; 40 balances that against render cost. Zoom/pan keeps cells
+// tappable.
+const MAX_ROWS = 64; // = round(40 * 1.6): cap for `rows` at the top end.
 const LEVELS_PER_SIZE_STEP = 2;
+
+// Phones are portrait (taller than wide), so the board is taller than it is wide:
+// `cols` uses the base `size`, and `rows` is stretched by this ratio.
+const ROWS_PER_COL_RATIO = 1.6;
+
+// Hand-tuned breakpoints mapping level -> cols. Grown modestly from the old 16/25/30/35 set
+// to counteract the lower head density from forward-cell collision, without mounting so
+// many arrows that the board loads in chunks. Level >= 100 stays at the top (40 / 64).
+const COLS_BREAKPOINTS: Array<{ level: number; cols: number }> = [
+  { level: 1, cols: 16 },
+  { level: 20, cols: 22 },
+  { level: 50, cols: 30 },
+  { level: 100, cols: 40 },
+];
+
+/** Linearly interpolates `cols` between the level breakpoints above. Levels before the
+ * first breakpoint use the first breakpoint's cols; levels after the last use the last
+ * (i.e. `MAX_SIZE`). */
+function computeColsForLevel(level: number): number {
+  if (level <= COLS_BREAKPOINTS[0].level) return COLS_BREAKPOINTS[0].cols;
+  for (let i = 1; i < COLS_BREAKPOINTS.length; i++) {
+    const prev = COLS_BREAKPOINTS[i - 1];
+    const curr = COLS_BREAKPOINTS[i];
+    if (level <= curr.level) {
+      const t = (level - prev.level) / (curr.level - prev.level);
+      return Math.round(prev.cols + t * (curr.cols - prev.cols));
+    }
+  }
+  return COLS_BREAKPOINTS[COLS_BREAKPOINTS.length - 1].cols;
+}
 
 const MIN_DENSITY = 1 / 7; // roughly one arrow per 7 cells, the original early-level feel
 const MAX_DENSITY = 0.6; // was 0.4 - bumped so hard levels aim for a lot more arrow
@@ -85,15 +118,17 @@ export function getLevelConfig(level: number): LevelConfig {
   }
 
   const effectiveLevel = level + LEVEL_OFFSET;
-  const size = Math.min(
-    MIN_SIZE + Math.floor((effectiveLevel - 1) / LEVELS_PER_SIZE_STEP),
-    MAX_SIZE,
-  );
+  // Board size follows the raw `level` (hand-tuned breakpoints below), while the
+  // difficulty inputs (density / tailLengthBias / blockChance / difficulty label)
+  // continue to use `effectiveLevel` so early levels still feel challenging without
+  // being tiny.
+  const cols = computeColsForLevel(level);
+  const rows = Math.min(Math.round(cols * ROWS_PER_COL_RATIO), MAX_ROWS);
   const density = Math.min(
     MAX_DENSITY,
     MIN_DENSITY + (effectiveLevel - 1) * DENSITY_RAMP_PER_LEVEL,
   );
-  const arrowCount = Math.max(5, Math.round(size * size * density));
+  const arrowCount = Math.max(5, Math.round(rows * cols * density));
   const tailLengthBias = Math.min(
     MAX_TAIL_LENGTH_BIAS,
     Math.floor((effectiveLevel - 1) / LEVELS_PER_TAIL_BIAS_STEP),
@@ -109,8 +144,8 @@ export function getLevelConfig(level: number): LevelConfig {
 
   return {
     level,
-    rows: size,
-    cols: size,
+    rows,
+    cols,
     arrowCount,
     seed: effectiveLevel * 7919 + 13,
     tailLengthBias,

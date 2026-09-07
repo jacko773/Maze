@@ -43,3 +43,20 @@ export function buildPingPongFrames(frames: Cell[][]): Cell[][] {
   if (frames.length <= 1) return frames;
   return [...frames, ...frames.slice(0, -1).reverse()];
 }
+
+/**
+ * Caps a frame sequence at `max` frames by evenly sampling across it (always keeping the
+ * first and last). On high levels an arrow's slide can span 100+ whole-cell frames, and
+ * every frame is rendered as its own SVG shape - mounting that many at once is what makes
+ * the leave/bump animation lag and stutter. Sampling keeps the motion spanning the same
+ * distance with far fewer shapes (the frames just step a few cells at a time).
+ */
+export function capFrames(frames: Cell[][], max: number): Cell[][] {
+  if (frames.length <= max) return frames;
+  const out: Cell[][] = [];
+  for (let i = 0; i < max; i++) {
+    const idx = Math.round((i * (frames.length - 1)) / (max - 1));
+    out.push(frames[idx]);
+  }
+  return out;
+}

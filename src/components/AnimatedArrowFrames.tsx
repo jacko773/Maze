@@ -33,7 +33,11 @@ export default function AnimatedArrowFrames({
   const geometries = useMemo(
     () =>
       frames.map((framePoints) =>
-        buildArrowShape(framePoints, direction, size, origin),
+        // Extend the head to the next maze point, same as a resting arrow, so the
+        // arrowhead keeps its point-to-point front while sliding (leaving) or bumping -
+        // it doesn't "collapse" to a short tip mid-animation, and on a blocked bump the
+        // front point reaches the blocker it collides with.
+        buildArrowShape(framePoints, direction, size, origin, true),
       ),
     [frames, direction, size, origin],
   );

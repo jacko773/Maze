@@ -111,6 +111,15 @@ export function findBlockerWithDistance(
     for (const cell of cells) {
       byCell.set(`${cell.row},${cell.col}`, other);
     }
+    // The arrowhead visually extends one cell forward onto the next maze point, so that
+    // cell is a solid obstacle too - a sliding arrow must collide with it rather than
+    // pass through another arrow's head. (Off-board forward cells - edge arrows - don't
+    // extend, so they add nothing.)
+    const fwd = stepCell({ row: other.row, col: other.col }, other.direction);
+    if (fwd.row >= 0 && fwd.row < rows && fwd.col >= 0 && fwd.col < cols) {
+      const fk = `${fwd.row},${fwd.col}`;
+      if (!byCell.has(fk)) byCell.set(fk, other);
+    }
   }
   const path = pathCells(arrow.row, arrow.col, arrow.direction, rows, cols);
   for (let i = 0; i < path.length; i++) {
@@ -170,6 +179,9 @@ function candidateDirections(
  * land on one of these cells, it's preferred over the normal zig-zag choice - deliberately
  * blocking that other arrow so it stops being simultaneously solvable. This is how harder
  * levels are built as a dependency chain instead of a pile of mostly-independent arrows.
+ *
+ * `reserved` holds cells kept empty in front of other arrows' heads (their arrowhead
+ * extends into that cell visually), so the tail must never grow into one.
  */
 function growTail(
   arrow: ArrowCell,
@@ -179,6 +191,7 @@ function growTail(
   rand: () => number,
   tailLengthBias: number,
   gateTargets: Set<string> | null,
+  reserved: Map<string, string>,
 ): Cell[] {
   const exitCells = new Set(
     pathCells(arrow.row, arrow.col, arrow.direction, rows, cols).map(
@@ -232,6 +245,7 @@ function growTail(
           continue;
         const key = `${next.row},${next.col}`;
         if (occupied.has(key)) continue;
+        if (reserved.has(key)) continue;
         if (exitCells.has(key)) continue;
         if (!gateTargets.has(key)) continue;
 
@@ -260,6 +274,7 @@ function growTail(
           continue;
         const key = `${next.row},${next.col}`;
         if (occupied.has(key)) continue;
+        if (reserved.has(key)) continue;
         if (exitCells.has(key)) continue;
 
         occupied.set(key, arrow.id);
@@ -291,13 +306,22 @@ function growTail(
 function computeOpenExitCellCounts(
   arrows: ArrowCell[],
   occupied: Map<string, string>,
+  reserved: Map<string, string>,
   rows: number,
   cols: number,
 ): Map<string, number> {
   const result = new Map<string, number>();
   for (const arrow of arrows) {
     const path = pathCells(arrow.row, arrow.col, arrow.direction, rows, cols);
-    const isOpen = path.every(([r, c]) => !occupied.has(`${r},${c}`));
+    // An arrow is solvable now only if its whole path is clear of other arrows' heads,
+    // tails (occupied) AND their forward extension cells (reserved). Its OWN forward cell
+    // (reserved to itself, always path[0]) never blocks it, so exclude self.
+    const isOpen = path.every(([r, c]) => {
+      const key = `${r},${c}`;
+      if (occupied.has(key)) return false;
+      const owner = reserved.get(key);
+      return owner === undefined || owner === arrow.id;
+    });
     if (!isOpen) continue;
     for (const [r, c] of path) {
       const key = `${r},${c}`;
@@ -339,6 +363,13 @@ function generateSingleLevelBoard(
   const occupied = new Map<string, string>();
   const arrows: ArrowCell[] = [];
   const tails: Record<string, Cell[]> = {};
+  // Cells kept empty directly in front of each placed head, so its arrowhead can extend
+  // one cell forward (head dot -> next dot). Mapped cell -> owning arrow id. Reserved
+  // cells are solid obstacles for OTHER arrows (their exit path must avoid them, matching
+  // the runtime collision), but never block their own owner. They are NOT added to
+  // `occupied`, so head/tail placement bookkeeping stays separate. This is what makes
+  // boards sparser and keeps every level solvable under forward-cell collision.
+  const reserved = new Map<string, string>();
   const maxArrows = Math.min(arrowCount, rows * cols);
   const maxAttempts = maxArrows * 300;
   let attempts = 0;
@@ -360,6 +391,7 @@ function generateSingleLevelBoard(
       const openExitCellCounts = computeOpenExitCellCounts(
         arrows,
         occupied,
+        reserved,
         rows,
         cols,
       );
@@ -370,6 +402,8 @@ function generateSingleLevelBoard(
         const [rStr, cStr] = key.split(",");
         const r = Number(rStr);
         const c = Number(cStr);
+        // Never put a head on a cell reserved for another arrow's forward extension.
+        if (reserved.has(key)) continue;
         // Prefer the direction whose exit path has the longest clear stretch - that's
         // the direction pointing "inward" (away from the nearest edge). Pointing outward
         // gives a very short exit path that barely blocks anything and gets solved
@@ -381,7 +415,18 @@ function generateSingleLevelBoard(
             path: pathCells(r, c, dir, rows, cols),
           }))
           .filter(
-            ({ path }) => !path.some(([pr, pc]) => occupied.has(`${pr},${pc}`)),
+            ({ path }) =>
+              // Must have at least one on-board cell in front (so the arrowhead has a
+              // next maze point to reach), and the WHOLE path must be clear of other
+              // arrows' heads/tails (occupied) AND their forward extension cells
+              // (reserved). Clearing reserved cells too is what keeps the board solvable
+              // once forward cells collide at runtime. The head's own forward cell isn't
+              // reserved yet, so this also guarantees a free cell to reserve for it.
+              path.length >= 1 &&
+              !path.some(([pr, pc]) => {
+                const k = `${pr},${pc}`;
+                return occupied.has(k) || reserved.has(k);
+              }),
           )
           .sort((a, b) => b.path.length - a.path.length);
         if (dirs.length > 0) {
@@ -405,7 +450,8 @@ function generateSingleLevelBoard(
       const emptyCells: Array<[number, number]> = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-          if (!occupied.has(`${r},${c}`)) emptyCells.push([r, c]);
+          const k = `${r},${c}`;
+          if (!occupied.has(k) && !reserved.has(k)) emptyCells.push([r, c]);
         }
       }
       if (emptyCells.length === 0) break;
@@ -422,7 +468,15 @@ function generateSingleLevelBoard(
             path: pathCells(er, ec, dir, rows, cols),
           }))
           .filter(
-            ({ path }) => !path.some(([r, c]) => occupied.has(`${r},${c}`)),
+            ({ path }) =>
+              // Same rule as the block-roll branch: an on-board forward cell, and the
+              // whole path clear of others' heads/tails (occupied) AND forward cells
+              // (reserved), so it can extend dot-to-dot and the board stays solvable.
+              path.length >= 1 &&
+              !path.some(([r, c]) => {
+                const k = `${r},${c}`;
+                return occupied.has(k) || reserved.has(k);
+              }),
           )
           .sort((a, b) => b.path.length - a.path.length);
         if (dirs.length > 0) {
@@ -454,7 +508,7 @@ function generateSingleLevelBoard(
     // via their tail, which left far more arrows simultaneously open at the start than the
     // blockChance percentage alone would suggest.
     const gateTargets = new Set(
-      computeOpenExitCellCounts(arrows, occupied, rows, cols).keys(),
+      computeOpenExitCellCounts(arrows, occupied, reserved, rows, cols).keys(),
     );
     tails[arrow.id] = growTail(
       arrow,
@@ -464,10 +518,19 @@ function generateSingleLevelBoard(
       rand,
       tailLengthBias,
       gateTargets,
+      reserved,
     );
+    // Reserve the cell directly in front of this head so its arrowhead can extend onto
+    // the next maze point. Only when that cell is on the board and not already used by an
+    // arrow (heads/tails). Off-board (edge) arrows simply keep their in-cell tip.
+    const fwd = stepCell({ row: placedRow, col: placedCol }, chosenDir);
+    if (fwd.row >= 0 && fwd.row < rows && fwd.col >= 0 && fwd.col < cols) {
+      const fwdKey = `${fwd.row},${fwd.col}`;
+      if (!occupied.has(fwdKey)) reserved.set(fwdKey, arrow.id);
+    }
   }
 
-  fillWithMoreHeads(arrows, tails, occupied, rows, cols, rand);
+  fillWithMoreHeads(arrows, tails, occupied, reserved, rows, cols, rand);
 
   return { arrows, tails };
 }
@@ -503,6 +566,7 @@ function fillWithMoreHeads(
   arrows: ArrowCell[],
   tails: Record<string, Cell[]>,
   occupied: Map<string, string>,
+  reserved: Map<string, string>,
   rows: number,
   cols: number,
   rand: () => number,
@@ -532,7 +596,8 @@ function fillWithMoreHeads(
   const emptyCells: Array<[number, number]> = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (!occupied.has(`${r},${c}`)) emptyCells.push([r, c]);
+      const k = `${r},${c}`;
+      if (!occupied.has(k) && !reserved.has(k)) emptyCells.push([r, c]);
     }
   }
   const shuffledEmpty = shuffle(emptyCells, rand);
@@ -540,17 +605,27 @@ function fillWithMoreHeads(
   for (const [r, c] of shuffledEmpty) {
     // A previous iteration in this same pass may have placed a head here already.
     if (occupied.has(`${r},${c}`)) continue;
+    // Or reserved as another arrow's forward extension cell.
+    if (reserved.has(`${r},${c}`)) continue;
 
     for (const dir of shuffle(ALL_DIRECTIONS, rand)) {
       const exit = pathCells(r, c, dir, rows, cols);
       // An arrow needs at least one cell in front to slide off the board.
       if (exit.length === 0) continue;
+      // The immediate forward cell must be free (not another arrow's head/tail, not
+      // already reserved) so this fill head gets its own reserved cell and can extend
+      // its arrowhead dot-to-dot like every other head.
+      const [e0r, e0c] = exit[0];
+      const e0Key = `${e0r},${e0c}`;
+      if (occupied.has(e0Key) || reserved.has(e0Key)) continue;
 
-      // Blockers of the candidate: existing arrows whose head/tail sits on its exit
-      // path. They must be removed BEFORE the candidate.
+      // Blockers of the candidate: existing arrows whose head/tail (occupied) OR forward
+      // extension cell (reserved) sits on its exit path. They must be removed BEFORE the
+      // candidate.
       let maxBlockerPos = -Infinity;
       for (const [pr, pc] of exit) {
-        const blockerId = occupied.get(`${pr},${pc}`);
+        const pk = `${pr},${pc}`;
+        const blockerId = occupied.get(pk) ?? reserved.get(pk);
         if (blockerId) {
           const pos = positions.get(blockerId);
           if (pos !== undefined && pos > maxBlockerPos) maxBlockerPos = pos;
@@ -561,8 +636,12 @@ function fillWithMoreHeads(
       // (r,c). The candidate's head sits on their exit line, so it blocks them - they
       // must be removed AFTER the candidate.
       let minSuccessorPos = Infinity;
-      const succIds = exitPathIndex.get(`${r},${c}`);
-      if (succIds) {
+      // Arrows the candidate blocks: those whose exit path passes through its head cell
+      // (r,c) OR through its forward extension cell exit[0] (the arrowhead reaches there
+      // and blocks them). Both make them successors -> removed AFTER the candidate.
+      for (const succKey of [`${r},${c}`, e0Key]) {
+        const succIds = exitPathIndex.get(succKey);
+        if (!succIds) continue;
         for (const sid of succIds) {
           const pos = positions.get(sid);
           if (pos !== undefined && pos < minSuccessorPos) minSuccessorPos = pos;
@@ -600,6 +679,9 @@ function fillWithMoreHeads(
           if (list) list.push(newArrow.id);
           else exitPathIndex.set(key, [newArrow.id]);
         }
+        // Reserve the cell in front of this fill head so its arrowhead can extend onto
+        // the next maze point (exit[0] is guaranteed on-board and free - checked above).
+        reserved.set(e0Key, newArrow.id);
 
         // Grow a short tail for the new arrow. Each candidate tail cell must:
         //   - Not already be occupied.
@@ -611,7 +693,7 @@ function fillWithMoreHeads(
         // We reuse `candidateDirections` / `preferStraight` from `growTail` so the
         // extension still reads as arrow-shaped.
         const ownExitSet = new Set(exit.map(([pr, pc]) => `${pr},${pc}`));
-        const tailCap = 2 + Math.floor(rand() * 6); // 2-5 tail cells
+        const tailCap = 2 + Math.floor(rand() * 8); // 2-5 tail cells
         const maxDirChanges = 2 + Math.floor(rand() * 3);
         let dirChanges = 0;
         let lastDir: Direction | null = null;
@@ -631,6 +713,7 @@ function fillWithMoreHeads(
               continue;
             const key = `${next.row},${next.col}`;
             if (occupied.has(key)) continue;
+            if (reserved.has(key)) continue;
             if (ownExitSet.has(key)) continue;
             // Any existing arrow whose exit path passes through this cell becomes a
             // successor of the new arrow. That requires newPos < pos(succ) for every

@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 import mobileAds from "react-native-google-mobile-ads";
 import HomeScreen from "./src/screens/HomeScreen";
 import GameScreen from "./src/screens/GameScreen";
@@ -21,7 +24,7 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <View style={styles.container}>
         {screen === "home" && (
           <HomeScreen

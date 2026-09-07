@@ -41,6 +41,12 @@
       ],
       "./plugins/withForceOlderPlayServicesAds.js",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b3169c03-e395-4b0c-b901-9f80c7a902cc"
+      }
+    },
+    "owner": "vinay773"
   }
 }

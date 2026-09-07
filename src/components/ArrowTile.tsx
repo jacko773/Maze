@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Pressable, StyleSheet } from "react-native";
 import Svg, { Path, Polygon } from "react-native-svg";
 import { ArrowCell, Cell } from "../game/types";
 import { theme } from "../theme/colors";
-import { buildTailSegments } from "./tailGeometry";
+import { DIRECTION_OFFSET } from "../game/direction";
 import { buildArrowShape } from "./arrowShape";
 import AnimatedArrowFrames from "./AnimatedArrowFrames";
-import { buildArrowFrames, buildPingPongFrames } from "./arrowFrames";
+import {
+  buildArrowFrames,
+  buildPingPongFrames,
+  capFrames,
+} from "./arrowFrames";
 
 interface ArrowTileProps {
   arrow: ArrowCell;
@@ -16,6 +20,7 @@ interface ArrowTileProps {
   tail: Cell[];
   blocked: boolean;
   hinted: boolean;
+  extendTip: boolean;
   bumpNonce: number;
   bumpDistance: number;
   onPress: (arrow: ArrowCell) => void;
@@ -23,9 +28,11 @@ interface ArrowTileProps {
 
 const BUMP_TRAVEL_DURATION = 200;
 const BUMP_HOLD_DURATION = 250;
-const TOUCH_THICKNESS_RATIO = 0.045;
+// A bump is a short there-and-back nudge; cap its frames so a bump toward a far-away
+// blocker (many cells) doesn't render dozens of SVG shapes at once.
+const MAX_BUMP_FRAMES = 12;
 
-export default function ArrowTile({
+function ArrowTile({
   arrow,
   size,
   left,
@@ -33,6 +40,7 @@ export default function ArrowTile({
   tail,
   blocked,
   hinted,
+  extendTip,
   bumpNonce,
   bumpDistance,
   onPress,
@@ -46,7 +54,11 @@ export default function ArrowTile({
     if (bumpNonce !== prevBumpNonce.current) {
       prevBumpNonce.current = bumpNonce;
       const bumpSteps = Math.max(0, Math.round(bumpDistance / size));
-      const forward = buildArrowFrames(arrow, tail, bumpSteps);
+      // Cap frames so a bump against a distant blocker doesn't mount dozens of SVG shapes.
+      const forward = capFrames(
+        buildArrowFrames(arrow, tail, bumpSteps),
+        MAX_BUMP_FRAMES,
+      );
       const pingPong = buildPingPongFrames(forward);
       const peakIndex = forward.length - 1;
       const endIndex = pingPong.length - 1;
@@ -106,10 +118,23 @@ export default function ArrowTile({
   const origin = { row: arrow.row, col: arrow.col };
 
   const geometry = useMemo(
-    () => buildArrowShape(tail, arrow.direction, size, origin),
+    () => buildArrowShape(tail, arrow.direction, size, origin, extendTip),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tail, arrow.direction, size, arrow.row, arrow.col],
+    [tail, arrow.direction, size, arrow.row, arrow.col, extendTip],
   );
+
+  // Asymmetric hitSlop that only grows the head cell's touch target in the direction
+  // the arrow points, covering the tip region. When the head extends onto the next
+  // (reserved, empty) cell the slop reaches into it so the tip stays tappable; when it
+  // doesn't extend, no forward slop (avoids bleeding onto a neighbour or off the board).
+  const [tipDx, tipDy] = DIRECTION_OFFSET[arrow.direction];
+  const tipReach = extendTip ? size * 0.5 : 0;
+  const headHitSlop = {
+    left: tipDx < 0 ? tipReach : 0,
+    right: tipDx > 0 ? tipReach : 0,
+    top: tipDy < 0 ? tipReach : 0,
+    bottom: tipDy > 0 ? tipReach : 0,
+  };
 
   if (bumpFrames) {
     return (
@@ -140,78 +165,66 @@ export default function ArrowTile({
   }
 
   return (
-    <Animated.View
-      style={[
-        styles.wrapper,
-        {
-          left: left + geometry.offsetLeft,
-          top: top + geometry.offsetTop,
-          width: geometry.width,
-          height: geometry.height,
-          transform: [{ scale: pulseAnim }],
-        },
-      ]}
-    >
-      <Svg
-        width={geometry.width}
-        height={geometry.height}
-        style={StyleSheet.absoluteFill}
+    <>
+      <Animated.View
         pointerEvents="none"
+        style={[
+          styles.wrapper,
+          {
+            left: left + geometry.offsetLeft,
+            top: top + geometry.offsetTop,
+            width: geometry.width,
+            height: geometry.height,
+            transform: [{ scale: pulseAnim }],
+          },
+        ]}
       >
-        <Path
-          d={geometry.tailPathD}
-          stroke={tailColor}
-          strokeWidth={geometry.thickness}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        <Polygon points={geometry.headPoints} fill={color} />
-      </Svg>
+        <Svg
+          width={geometry.width}
+          height={geometry.height}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        >
+          <Path
+            d={geometry.tailPathD}
+            stroke={tailColor}
+            strokeWidth={geometry.thickness}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+          <Polygon points={geometry.headPoints} fill={color} />
+        </Svg>
+      </Animated.View>
 
-      {/* Invisible touch targets, positioned back in the arrow's own origin-relative
-          coordinate space (undoing the bbox shift above) so tapping anywhere along the
-          tail or the head moves the arrow, same as before. */}
-      <View
-        pointerEvents="box-none"
-        style={{
-          position: "absolute",
-          left: -geometry.offsetLeft,
-          top: -geometry.offsetTop,
-          width: size,
-          height: size,
-        }}
-      >
-        {tail.length >= 2 &&
-          buildTailSegments(tail, size, TOUCH_THICKNESS_RATIO, origin).map(
-            (seg) => (
-              <Pressable
-                key={seg.key}
-                onPress={() => onPress(arrow)}
-                hitSlop={size * 0.25}
-                style={{
-                  position: "absolute",
-                  left: seg.left,
-                  top: seg.top,
-                  width: seg.width,
-                  height: seg.height,
-                }}
-              />
-            ),
-          )}
+      {/* Touch targets: one full-cell Pressable per grid cell the arrow occupies
+          (head + tail), positioned directly in board coordinates as siblings of the
+          visual layer. Because they are NOT nested inside the SVG bounding-box
+          wrapper, they are never clipped by it (on Android a child spilling outside
+          its parent's bounds stops receiving touches - which previously made
+          short/no-tail arrows, whose bbox is smaller than a cell, unresponsive).
+          Cells are grid-aligned and never overlap between arrows, so there's no
+          hitSlop bleed or cross-triggering either. */}
+      {tail.map((cell, i) => (
         <Pressable
+          key={`touch-${i}`}
           onPress={() => onPress(arrow)}
-          hitSlop={10}
+          // The arrowhead's tip reaches the leading edge of the head cell, so aiming
+          // at the tip tends to land just past it in the (usually empty) cell in
+          // front. Extend ONLY the head cell (i === 0) ONLY on the side it points,
+          // so the tip is comfortably tappable without widening the other three
+          // sides into neighbours.
+          hitSlop={i === 0 ? headHitSlop : undefined}
           style={{
             position: "absolute",
-            left: 0,
-            top: 0,
+            left: left + (cell.col - arrow.col) * size,
+            top: top + (cell.row - arrow.row) * size,
             width: size,
             height: size,
           }}
         />
-      </View>
-    </Animated.View>
+      ))}
+    </>
   );
 }
 
@@ -220,3 +233,10 @@ const styles = StyleSheet.create({
     position: "absolute",
   },
 });
+
+// Memoized: a board can hold hundreds of arrows, and GameScreen re-renders on every pan/
+// zoom frame and every game-state change. Without this, all of them re-render each time
+// (re-running their SVG geometry), which makes big boards mount in visible chunks and
+// stutter while panning. With stable props (see `onPress` useCallback in GameScreen) each
+// arrow only re-renders when its own props actually change.
+export default React.memo(ArrowTile);

@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Dimensions,
   Modal,
@@ -134,9 +140,20 @@ export default function GameScreen({
   const [showOutOfTries, setShowOutOfTries] = useState(false);
   const [showAdUnavailable, setShowAdUnavailable] = useState(false);
   const [hintId, setHintId] = useState<string | null>(null);
+  // Progressive board reveal on level load: arrows are mounted in batches (see effect
+  // below) so the maze fills in visibly instead of appearing all at once, and the mount
+  // cost of hundreds of SVG arrows is spread across a few frames. The header/footer stay
+  // hidden until the whole board has been revealed.
+  const [revealCount, setRevealCount] = useState(0);
   const zoomRef = useRef(1);
   const offsetRef = useRef({ x: 0, y: 0 });
   const gestureRef = useRef<GestureBaseline>(IDLE_GESTURE);
+  // Measured size of the board viewport (the `boardWrapper`) and the real pixel size of
+  // the board itself. Both feed the pan/zoom clamping so a board taller than the viewport
+  // (portrait boards now fill the width and overflow vertically) can be panned to reveal
+  // its top and bottom.
+  const viewportRef = useRef({ width: 0, height: 0 });
+  const boardDimsRef = useRef({ width: 0, height: 0 });
   const winTriggeredRef = useRef(false);
   const blockerFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -167,7 +184,84 @@ export default function GameScreen({
 
   const windowWidth = Dimensions.get("window").width;
   const boardSize = Math.min(windowWidth - HORIZONTAL_PADDING * 2, 420);
-  const cellSize = boardSize / Math.max(config.rows, config.cols);
+  // Fill the available width: size cells by the column count so the board's WIDTH equals
+  // `boardSize`. Boards are portrait (rows > cols), so the board is then taller than it is
+  // wide and can run past the viewport height - the pan/zoom clamps below use the measured
+  // viewport plus the real board dimensions so that vertical overflow stays reachable.
+  const cellSize = boardSize / config.cols;
+  boardDimsRef.current = {
+    width: cellSize * config.cols,
+    height: cellSize * config.rows,
+  };
+
+  // Number of arrows the board started with, and whether the progressive reveal has
+  // finished. `boardReady` gates the header/footer (hidden until the maze is fully in) and
+  // blocks taps mid-reveal.
+  const totalArrows = initialBoard.arrows.length;
+  const boardReady = revealCount >= totalArrows;
+
+  // Mount arrows in batches (~1/6 of the board per step) on level load, so the maze fills
+  // in visibly and the SVG mount cost is spread across frames rather than one janky commit.
+  useEffect(() => {
+    if (totalArrows === 0) {
+      setRevealCount(0);
+      return;
+    }
+    const batch = Math.max(1, Math.ceil(totalArrows / 6));
+    let raf = 0;
+    const step = () => {
+      setRevealCount((c) => {
+        const next = Math.min(totalArrows, c + batch);
+        if (next < totalArrows) raf = requestAnimationFrame(step);
+        return next;
+      });
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // Runs once per mounted level (GameScreen is keyed by level in App).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Arrows actually handed to the board: a growing prefix during the reveal, the full set
+  // (which also reflects removals during play) once ready.
+  const visibleArrows = boardReady ? arrows : arrows.slice(0, revealCount);
+
+  // Latest values `handlePress` reads, kept in a ref so the callback identity can stay
+  // stable (useCallback([]) below). Without this, every tap changes `arrows`, recreating
+  // handlePress and thus the `onPress` prop on all ~hundreds of memoized ArrowTiles - so
+  // they ALL re-render on every move. That was the main source of in-play lag on big
+  // boards.
+  const pressCtxRef = useRef({
+    boardReady,
+    showWin,
+    showOutOfTries,
+    arrows,
+    tails,
+    config,
+    cellSize,
+    hintId,
+  });
+  pressCtxRef.current = {
+    boardReady,
+    showWin,
+    showOutOfTries,
+    arrows,
+    tails,
+    config,
+    cellSize,
+    hintId,
+  };
+
+  // Stable identity for the blocked/flashing set so <Board> (memoized) doesn't re-render
+  // every frame while panning. Only rebuilt when the flagged or flashing ids actually
+  // change.
+  const blockedIds = useMemo(
+    () =>
+      flaggedIds.size === 0 && blockerFlashIds.size === 0
+        ? flaggedIds
+        : new Set<string>([...flaggedIds, ...blockerFlashIds]),
+    [flaggedIds, blockerFlashIds],
+  );
 
   // Once any arrow's board position changes (something got removed), re-check every
   // persistently-flagged (red) arrow: if its path is clear now, move it automatically -
@@ -208,8 +302,18 @@ export default function GameScreen({
     }
   }, [arrows, flaggedIds, tails, config, cellSize]);
 
-  function handlePress(arrow: ArrowCell) {
-    if (showWin || showOutOfTries) return;
+  const handlePress = useCallback((arrow: ArrowCell) => {
+    const {
+      boardReady,
+      showWin,
+      showOutOfTries,
+      arrows,
+      tails,
+      config,
+      cellSize,
+      hintId,
+    } = pressCtxRef.current;
+    if (!boardReady || showWin || showOutOfTries) return;
     const { blocker, distanceCells } = findBlockerWithDistance(
       arrow,
       arrows,
@@ -253,16 +357,16 @@ export default function GameScreen({
       if (next <= 0) setShowOutOfTries(true);
       return next;
     });
-  }
+  }, []);
 
-  function handleLeaveComplete(id: string) {
+  const handleLeaveComplete = useCallback((id: string) => {
     setLeaving((prev) => prev.filter((a) => a.id !== id));
     setTravelDistances((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
-  }
+  }, []);
 
   function handleRestart() {
     winTriggeredRef.current = false;
@@ -338,7 +442,14 @@ export default function GameScreen({
           gestureState.numberActiveTouches >= 2,
         onMoveShouldSetPanResponderCapture: (_, gestureState) => {
           if (gestureState.numberActiveTouches >= 2) return true;
-          if (zoomRef.current <= 1) return false;
+          // Allow a single-finger drag to pan whenever the board is zoomed in OR it
+          // overflows its viewport (portrait boards are taller than the visible area).
+          const bd = boardDimsRef.current;
+          const vpW = viewportRef.current.width || bd.width;
+          const vpH = viewportRef.current.height || bd.height;
+          const overflowX = bd.width * zoomRef.current - vpW > 1;
+          const overflowY = bd.height * zoomRef.current - vpH > 1;
+          if (zoomRef.current <= 1 && !overflowX && !overflowY) return false;
           return (
             Math.abs(gestureState.dx) > PAN_ACTIVATION_THRESHOLD ||
             Math.abs(gestureState.dy) > PAN_ACTIVATION_THRESHOLD
@@ -349,13 +460,16 @@ export default function GameScreen({
         },
         onPanResponderMove: (event) => {
           const touches = event.nativeEvent.touches;
+          const bd = boardDimsRef.current;
+          const vpW = viewportRef.current.width || bd.width;
+          const vpH = viewportRef.current.height || bd.height;
           const panLimitX = Math.max(
             0,
-            (boardSize * zoomRef.current - boardSize) / 2 + 32,
+            (bd.width * zoomRef.current - vpW) / 2 + 8,
           );
           const panLimitY = Math.max(
             0,
-            (boardSize * zoomRef.current - boardSize) / 2 + 32,
+            (bd.height * zoomRef.current - vpH) / 2 + 8,
           );
 
           if (touches.length >= 2) {
@@ -404,7 +518,11 @@ export default function GameScreen({
             return;
           }
 
-          if (zoomRef.current <= 1 || touches.length === 0) return;
+          // Single-finger pan: allowed while zoomed in, or whenever the board overflows
+          // its viewport (there's somewhere to pan to).
+          if (touches.length === 0) return;
+          if (zoomRef.current <= 1 && panLimitX === 0 && panLimitY === 0)
+            return;
           const touch = touches[0];
 
           if (gestureRef.current.mode !== "pan") {
@@ -446,7 +564,10 @@ export default function GameScreen({
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <View style={styles.header}>
+      <View
+        style={[styles.header, !boardReady && styles.hiddenChrome]}
+        pointerEvents={boardReady ? "auto" : "none"}
+      >
         <TouchableOpacity
           onPress={onExit}
           hitSlop={10}
@@ -464,7 +585,10 @@ export default function GameScreen({
         </TouchableOpacity>
       </View>
 
-      <View style={styles.dropletsRow}>
+      <View
+        style={[styles.dropletsRow, !boardReady && styles.hiddenChrome]}
+        pointerEvents={boardReady ? "auto" : "none"}
+      >
         {Array.from({ length: MAX_LIVES }).map((_, i) => (
           <Ionicons
             key={i}
@@ -476,7 +600,16 @@ export default function GameScreen({
         ))}
       </View>
 
-      <View style={styles.boardWrapper} {...boardZoomResponder.panHandlers}>
+      <View
+        style={styles.boardWrapper}
+        {...boardZoomResponder.panHandlers}
+        onLayout={(e) => {
+          viewportRef.current = {
+            width: e.nativeEvent.layout.width,
+            height: e.nativeEvent.layout.height,
+          };
+        }}
+      >
         <View
           style={[
             styles.boardZoomLayer,
@@ -493,15 +626,11 @@ export default function GameScreen({
             rows={config.rows}
             cols={config.cols}
             boardSize={boardSize}
-            arrows={arrows}
+            arrows={visibleArrows}
             leaving={leaving}
             tails={tails}
             travelDistances={travelDistances}
-            blockedIds={
-              flaggedIds.size === 0 && blockerFlashIds.size === 0
-                ? flaggedIds
-                : new Set([...flaggedIds, ...blockerFlashIds])
-            }
+            blockedIds={blockedIds}
             bumps={bumps}
             showGrid={showGrid}
             hintId={hintId}
@@ -511,7 +640,10 @@ export default function GameScreen({
         </View>
       </View>
 
-      <View style={styles.toolbar}>
+      <View
+        style={[styles.toolbar, !boardReady && styles.hiddenChrome]}
+        pointerEvents={boardReady ? "auto" : "none"}
+      >
         <TouchableOpacity
           style={styles.toolbarButton}
           onPress={() => setShowGrid((g) => !g)}
@@ -681,6 +813,11 @@ const styles = StyleSheet.create({
     zIndex: 10,
     elevation: 10,
   },
+  // Header/footer/droplets are hidden (but keep their layout space, so the board doesn't
+  // jump) until the progressive board reveal finishes.
+  hiddenChrome: {
+    opacity: 0,
+  },
   iconButton: {
     width: 40,
     height: 40,
@@ -701,7 +838,7 @@ const styles = StyleSheet.create({
   boardWrapper: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     paddingVertical: 12,
     overflow: "hidden",
   },
