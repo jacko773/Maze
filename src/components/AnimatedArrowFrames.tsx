@@ -9,7 +9,9 @@ interface AnimatedArrowFramesProps {
   origin: Cell;
   size: number;
   direction: Direction;
-  t: Animated.Value;
+  // A raw Animated.Value or any interpolation of one - both expose `.interpolate`, which is
+  // all this component uses to drive the per-frame cross-fade.
+  t: Animated.Value | Animated.AnimatedInterpolation<string | number>;
   tailColor: string;
   headColor: string;
 }

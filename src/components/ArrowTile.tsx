@@ -32,6 +32,55 @@ const BUMP_HOLD_DURATION = 250;
 // blocker (many cells) doesn't render dozens of SVG shapes at once.
 const MAX_BUMP_FRAMES = 12;
 
+/** An axis-aligned rectangle (in grid cells) covering one straight run of an arrow. */
+interface CellRun {
+  minRow: number;
+  minCol: number;
+  maxRow: number;
+  maxCol: number;
+}
+
+/**
+ * Collapses an arrow's ordered path cells (head -> ... -> tail tip) into the fewest
+ * axis-aligned rectangles: each maximal straight run of cells becomes one rectangle. A
+ * straight-tailed arrow of N cells becomes a SINGLE rectangle; an L/Z-shaped one becomes 2-3.
+ * On dense high-level boards this turns thousands of per-cell touch views into a few hundred,
+ * which is the main cost behind the post-tap commit lag. The runs only ever cover the arrow's
+ * own (exclusively occupied) cells, so they never overlap another arrow. The corner cell is
+ * shared by both adjoining runs, which is harmless (same arrow, same handler).
+ */
+function mergeCellRuns(cells: Cell[]): CellRun[] {
+  if (cells.length === 0) return [];
+  const rectFrom = (a: number, b: number): CellRun => {
+    let minRow = cells[a].row;
+    let maxRow = cells[a].row;
+    let minCol = cells[a].col;
+    let maxCol = cells[a].col;
+    for (let i = a + 1; i <= b; i++) {
+      minRow = Math.min(minRow, cells[i].row);
+      maxRow = Math.max(maxRow, cells[i].row);
+      minCol = Math.min(minCol, cells[i].col);
+      maxCol = Math.max(maxCol, cells[i].col);
+    }
+    return { minRow, minCol, maxRow, maxCol };
+  };
+
+  const runs: CellRun[] = [];
+  let startIdx = 0;
+  for (let i = 2; i < cells.length; i++) {
+    const prevDr = cells[i - 1].row - cells[i - 2].row;
+    const prevDc = cells[i - 1].col - cells[i - 2].col;
+    const curDr = cells[i].row - cells[i - 1].row;
+    const curDc = cells[i].col - cells[i - 1].col;
+    if (curDr !== prevDr || curDc !== prevDc) {
+      runs.push(rectFrom(startIdx, i - 1));
+      startIdx = i - 1; // corner cell is shared with the next run
+    }
+  }
+  runs.push(rectFrom(startIdx, cells.length - 1));
+  return runs;
+}
+
 function ArrowTile({
   arrow,
   size,
@@ -123,12 +172,19 @@ function ArrowTile({
     [tail, arrow.direction, size, arrow.row, arrow.col, extendTip],
   );
 
+  // Touch targets as merged straight-run rectangles (see `mergeCellRuns`) instead of one per
+  // cell - far fewer native views on dense boards. Run 0 always contains the head (cells[0]).
+  const touchRuns = useMemo(() => mergeCellRuns(tail), [tail]);
+
   // Asymmetric hitSlop that only grows the head cell's touch target in the direction
   // the arrow points, covering the tip region. When the head extends onto the next
-  // (reserved, empty) cell the slop reaches into it so the tip stays tappable; when it
-  // doesn't extend, no forward slop (avoids bleeding onto a neighbour or off the board).
+  // (reserved, empty) cell its arrowhead is drawn a FULL cell forward, so the slop
+  // reaches a full cell too - otherwise the outer/upper half of the arrowhead (the part
+  // sitting in the next cell) isn't tappable and taps there do nothing. That forward cell
+  // is guaranteed empty whenever `extendTip` is true, so a full-cell reach can't bleed
+  // onto a neighbour. When it doesn't extend, no forward slop.
   const [tipDx, tipDy] = DIRECTION_OFFSET[arrow.direction];
-  const tipReach = extendTip ? size * 0.5 : 0;
+  const tipReach = extendTip ? size : 0;
   const headHitSlop = {
     left: tipDx < 0 ? tipReach : 0,
     right: tipDx > 0 ? tipReach : 0,
@@ -197,33 +253,46 @@ function ArrowTile({
         </Svg>
       </Animated.View>
 
-      {/* Touch targets: one full-cell Pressable per grid cell the arrow occupies
-          (head + tail), positioned directly in board coordinates as siblings of the
-          visual layer. Because they are NOT nested inside the SVG bounding-box
-          wrapper, they are never clipped by it (on Android a child spilling outside
-          its parent's bounds stops receiving touches - which previously made
-          short/no-tail arrows, whose bbox is smaller than a cell, unresponsive).
-          Cells are grid-aligned and never overlap between arrows, so there's no
-          hitSlop bleed or cross-triggering either. */}
-      {tail.map((cell, i) => (
+      {/* Touch targets: one Pressable per straight RUN of cells the arrow occupies (see
+          `mergeCellRuns`), positioned directly in board coordinates as siblings of the
+          visual layer. Kept OUT of the SVG bounding-box wrapper so they are never clipped
+          by it (on Android a child spilling outside its parent's bounds stops receiving
+          touches). Runs only cover the arrow's own grid cells and never overlap another
+          arrow, so there's no cross-triggering. */}
+      {touchRuns.map((run, i) => (
         <Pressable
           key={`touch-${i}`}
           onPress={() => onPress(arrow)}
-          // The arrowhead's tip reaches the leading edge of the head cell, so aiming
-          // at the tip tends to land just past it in the (usually empty) cell in
-          // front. Extend ONLY the head cell (i === 0) ONLY on the side it points,
-          // so the tip is comfortably tappable without widening the other three
-          // sides into neighbours.
-          hitSlop={i === 0 ? headHitSlop : undefined}
           style={{
             position: "absolute",
-            left: left + (cell.col - arrow.col) * size,
-            top: top + (cell.row - arrow.row) * size,
+            left: left + (run.minCol - arrow.col) * size,
+            top: top + (run.minRow - arrow.row) * size,
+            width: (run.maxCol - run.minCol + 1) * size,
+            height: (run.maxRow - run.minRow + 1) * size,
+          }}
+        />
+      ))}
+
+      {/* Tip extension: when the head reaches onto the (reserved, empty) cell in front, the
+          runs above only cover the head's own cell, so add a single head-cell Pressable
+          whose forward hitSlop makes that protruding arrowhead tip tappable. Applied to a
+          1-cell base (not a run) so the slop only ever grows straight ahead of the head - a
+          run can be perpendicular/multi-cell, and slopping its whole forward edge would bleed
+          onto neighbours. Only rendered when the head actually extends. */}
+      {extendTip && (
+        <Pressable
+          key="touch-tip"
+          onPress={() => onPress(arrow)}
+          hitSlop={headHitSlop}
+          style={{
+            position: "absolute",
+            left,
+            top,
             width: size,
             height: size,
           }}
         />
-      ))}
+      )}
     </>
   );
 }

@@ -33,9 +33,15 @@ import { saveLevelResult, starsForMistakes } from "../storage/progress";
 import { haptics } from "../utils/haptics";
 import { theme } from "../theme/colors";
 import { useRewardedAd } from "../ads/useRewardedAd";
+import { useInterstitialAd } from "../ads/useInterstitialAd";
+import {
+  canShowInterstitial,
+  markInterstitialShown,
+} from "../ads/adFrequency";
 import {
   CONTINUE_REWARDED_AD_UNIT_ID,
   HINT_REWARDED_AD_UNIT_ID,
+  NEXT_LEVEL_INTERSTITIAL_AD_UNIT_ID,
 } from "../ads/adUnitIds";
 
 interface GameScreenProps {
@@ -161,6 +167,7 @@ export default function GameScreen({
   const hintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hintAd = useRewardedAd(HINT_REWARDED_AD_UNIT_ID);
   const continueAd = useRewardedAd(CONTINUE_REWARDED_AD_UNIT_ID);
+  const nextLevelAd = useInterstitialAd(NEXT_LEVEL_INTERSTITIAL_AD_UNIT_ID);
 
   useEffect(() => {
     return () => {
@@ -417,6 +424,22 @@ export default function GameScreen({
     });
     if (!shown) {
       setShowAdUnavailable(true);
+    }
+  }
+
+  // Advancing to the next level. From level 11 onward we may show a full-screen interstitial
+  // ad first, subject to a frequency cap (see `adFrequency`) so it never feels ad-heavy.
+  // Progression must ALWAYS happen: we advance when the ad closes, or immediately when the
+  // cap blocks it or no ad is ready (low fill rate is expected/desired here).
+  function handleNextLevel() {
+    const target = level + 1;
+    const shown = canShowInterstitial(level)
+      ? nextLevelAd.show(() => onNextLevel(target))
+      : false;
+    if (shown) {
+      markInterstitialShown(level);
+    } else {
+      onNextLevel(target);
     }
   }
 
@@ -764,7 +787,7 @@ export default function GameScreen({
                 hasNextLevel ? (
                   <TouchableOpacity
                     style={styles.modalButtonPrimary}
-                    onPress={() => onNextLevel(level + 1)}
+                    onPress={handleNextLevel}
                   >
                     <Text style={styles.modalButtonPrimaryText}>Next</Text>
                   </TouchableOpacity>
@@ -787,7 +810,7 @@ export default function GameScreen({
                   {hasNextLevel && (
                     <TouchableOpacity
                       style={styles.modalButtonPrimary}
-                      onPress={() => onNextLevel(level + 1)}
+                      onPress={handleNextLevel}
                     >
                       <Text style={styles.modalButtonPrimaryText}>Next</Text>
                     </TouchableOpacity>
