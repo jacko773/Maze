@@ -46,3 +46,5 @@ yarn-error.*
 tools/maze-preview.bundle.js
 tools/build-maze-preview.js
 tools/maze-preview.html
+
+push.sh

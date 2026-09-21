@@ -47,9 +47,11 @@ export default function HomeScreen({ onPlay }: HomeScreenProps) {
           be removed!
         </Text>
 
-        {loaded && (
-          <>
-            <View style={styles.pathRow}>
+        {/* Rendered unconditionally so the centred column keeps its height while
+            progress loads - only the progress-dependent contents wait. */}
+        <View style={styles.pathRow}>
+          {loaded && (
+            <>
               <View style={styles.pathTrack} />
               <View style={[styles.node, styles.currentNode]}>
                 <Text style={styles.currentNodeText}>{currentLevel}</Text>
@@ -65,14 +67,15 @@ export default function HomeScreen({ onPlay }: HomeScreenProps) {
                   <Text style={styles.nodeText}>{lvl}</Text>
                 </View>
               ))}
-            </View>
-          </>
-        )}
+            </>
+          )}
+        </View>
 
         <TouchableOpacity
-          style={styles.playButton}
+          style={[styles.playButton, !loaded && styles.playButtonPending]}
           onPress={() => onPlay(currentLevel)}
           activeOpacity={0.85}
+          disabled={!loaded}
         >
           <Text style={styles.playButtonText}>
             {currentLevel < 20
@@ -120,6 +123,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     width: "100%",
+    height: 64,
     marginBottom: 20,
   },
   pathTrack: {
@@ -157,6 +161,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 16,
   },
+  playButtonPending: { opacity: 0 },
   playButtonText: { fontSize: 18, fontWeight: "800", color: theme.white },
   playButtonSubtext: {
     fontSize: 12,
