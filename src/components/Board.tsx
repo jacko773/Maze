@@ -4,7 +4,8 @@ import ArrowTile from "./ArrowTile";
 import LeavingArrowTile from "./LeavingArrowTile";
 import { ArrowCell, Cell } from "../game/types";
 import { DIRECTION_OFFSET } from "../game/direction";
-import { theme } from "../theme/colors";
+import { Theme } from "../theme/colors";
+import { useThemedStyles } from "../theme/ThemeContext";
 
 interface BoardProps {
   rows: number;
@@ -41,6 +42,7 @@ function Board({
   // Boards are portrait (rows > cols), so the resulting height (cellSize * rows) is taller
   // than the width - GameScreen's pan/zoom handles any vertical overflow.
   const cellSize = boardSize / cols;
+  const styles = useThemedStyles(createStyles);
 
   // Which heads may extend their arrowhead onto the next maze point. The generator
   // reserves the cell in front of each head so it stays blank; a head extends when its
@@ -136,18 +138,19 @@ function Board({
   );
 }
 
-const styles = StyleSheet.create({
-  board: {
-    position: "relative",
-    borderRadius: 16,
-    overflow: "visible",
-    backgroundColor: theme.boardBackground,
-  },
-  gridDot: {
-    position: "absolute",
-    backgroundColor: theme.gridLineStrong,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    board: {
+      position: "relative",
+      borderRadius: 16,
+      overflow: "visible",
+      backgroundColor: theme.boardBackground,
+    },
+    gridDot: {
+      position: "absolute",
+      backgroundColor: theme.gridLineStrong,
+    },
+  });
 
 // Memoized so panning/zooming (which re-renders GameScreen every frame) doesn't re-render
 // the whole board and its hundreds of arrows. With stable props (onPress/onLeaveComplete

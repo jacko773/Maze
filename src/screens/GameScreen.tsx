@@ -30,8 +30,14 @@ import {
 } from "../game/levelConfigs";
 import { ArrowCell, Cell, LevelConfig } from "../game/types";
 import { saveLevelResult, starsForMistakes } from "../storage/progress";
+import {
+  openStoreListing,
+  requestReviewAfterMilestone,
+  shareApp,
+} from "../utils/appLinks";
 import { haptics } from "../utils/haptics";
-import { theme } from "../theme/colors";
+import { Theme } from "../theme/colors";
+import { useTheme, useThemedStyles } from "../theme/ThemeContext";
 import { useRewardedAd } from "../ads/useRewardedAd";
 import { useInterstitialAd } from "../ads/useInterstitialAd";
 import {
@@ -55,6 +61,9 @@ const MAX_LIVES = 3;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 1.8;
 const PAN_ACTIVATION_THRESHOLD = 6;
+// Levels cleared before the native "rate this app" prompt is considered. Kept below the
+// level-11 interstitial threshold so the two never compete for the same moment.
+const REVIEW_PROMPT_LEVEL = 5;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -115,6 +124,8 @@ export default function GameScreen({
   onExit,
   onNextLevel,
 }: GameScreenProps) {
+  const theme = useTheme();
+  const styles = useThemedStyles(createStyles);
   const config = useMemo(() => getLevelConfig(level), [level]);
   const initialBoard = useMemo(
     () => getBoardForLevel(level, config),
@@ -440,6 +451,10 @@ export default function GameScreen({
       markInterstitialShown(level);
     } else {
       onNextLevel(target);
+      // A finished level is the "significant interaction" Expo's docs say to gate the
+      // native review prompt on. It only ever fires once per install, and only below
+      // the interstitial threshold so it can never land on top of an ad.
+      if (level >= REVIEW_PROMPT_LEVEL) requestReviewAfterMilestone();
     }
   }
 
@@ -586,7 +601,7 @@ export default function GameScreen({
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle={theme.statusBarStyle} />
       <View
         style={[styles.header, !boardReady && styles.hiddenChrome]}
         pointerEvents={boardReady ? "auto" : "none"}
@@ -818,6 +833,31 @@ export default function GameScreen({
                 </>
               )}
             </View>
+            <View style={styles.modalActionBar}>
+              <TouchableOpacity
+                onPress={shareApp}
+                style={styles.modalActionItem}
+                activeOpacity={0.6}
+                accessibilityRole="button"
+                accessibilityLabel="Share Arrow Maze"
+              >
+                <Ionicons
+                  name="share-social-outline"
+                  size={18}
+                  color={theme.ink}
+                />
+              </TouchableOpacity>
+              <View style={styles.modalActionDivider} />
+              <TouchableOpacity
+                onPress={openStoreListing}
+                style={styles.modalActionItem}
+                activeOpacity={0.6}
+                accessibilityRole="button"
+                accessibilityLabel="Rate Arrow Maze"
+              >
+                <Ionicons name="star-outline" size={18} color={theme.ink} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -825,138 +865,159 @@ export default function GameScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.background },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    zIndex: 10,
-    elevation: 10,
-  },
-  // Header/footer/droplets are hidden (but keep their layout space, so the board doesn't
-  // jump) until the progressive board reveal finishes.
-  hiddenChrome: {
-    opacity: 0,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.panel,
-  },
-  headerTitle: { color: theme.gold, fontSize: 22, fontWeight: "800" },
-  dropletsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 12,
-    zIndex: 10,
-    elevation: 10,
-  },
-  droplet: { marginHorizontal: 4 },
-  boardWrapper: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    paddingVertical: 12,
-    overflow: "hidden",
-  },
-  boardZoomLayer: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  toolbar: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 20,
-    paddingVertical: 20,
-    zIndex: 10,
-    elevation: 10,
-  },
-  toolbarButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.panel,
-    borderWidth: 1,
-    borderColor: theme.panelBorder,
-  },
-  adBadge: {
-    position: "absolute",
-    top: -6,
-    right: -6,
-    backgroundColor: theme.gold,
-    borderRadius: 8,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderWidth: 1,
-    borderColor: theme.white,
-  },
-  adBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: theme.white,
-    letterSpacing: 0.3,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(59,42,26,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalCard: {
-    backgroundColor: theme.white,
-    borderRadius: 20,
-    padding: 28,
-    alignItems: "center",
-    width: "80%",
-  },
-  adUnavailableIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: theme.panel,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: theme.ink,
-    marginBottom: 8,
-  },
-  modalStars: { fontSize: 32, color: theme.star, marginBottom: 8 },
-  modalSubtitle: {
-    fontSize: 15,
-    color: theme.inkLight,
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  modalButtons: { flexDirection: "row", gap: 10 },
-  modalButtonsColumn: { width: "100%", gap: 10, marginTop: 8 },
-  modalButtonSecondary: {
-    backgroundColor: theme.panel,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  modalButtonSecondaryText: { color: theme.ink, fontWeight: "700" },
-  modalButtonPrimary: {
-    backgroundColor: theme.gold,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  modalButtonPrimaryText: { color: theme.white, fontWeight: "700" },
-  modalButtonGhost: { paddingVertical: 10, alignItems: "center" },
-  modalButtonGhostText: { color: theme.inkLight, fontWeight: "600" },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      zIndex: 10,
+      elevation: 10,
+    },
+    // Header/footer/droplets are hidden (but keep their layout space, so the board doesn't
+    // jump) until the progressive board reveal finishes.
+    hiddenChrome: {
+      opacity: 0,
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.panel,
+    },
+    headerTitle: { color: theme.ink, fontSize: 22, fontWeight: "800" },
+    dropletsRow: {
+      flexDirection: "row",
+      justifyContent: "center",
+      marginBottom: 12,
+      zIndex: 10,
+      elevation: 10,
+    },
+    droplet: { marginHorizontal: 4 },
+    boardWrapper: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "flex-start",
+      paddingVertical: 12,
+      overflow: "hidden",
+    },
+    boardZoomLayer: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    toolbar: {
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 20,
+      paddingVertical: 20,
+      zIndex: 10,
+      elevation: 10,
+    },
+    toolbarButton: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.panel,
+      borderWidth: 1,
+      borderColor: theme.panelBorder,
+    },
+    adBadge: {
+      position: "absolute",
+      top: -6,
+      right: -6,
+      backgroundColor: theme.gold,
+      borderRadius: 8,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderWidth: 1,
+      borderColor: theme.white,
+    },
+    adBadgeText: {
+      fontSize: 9,
+      fontWeight: "700",
+      color: theme.onAccent,
+      letterSpacing: 0.3,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: theme.overlay,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    modalCard: {
+      backgroundColor: theme.white,
+      borderRadius: 20,
+      padding: 28,
+      alignItems: "center",
+      width: "80%",
+    },
+    adUnavailableIconWrap: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: theme.panel,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 12,
+    },
+    modalTitle: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: theme.ink,
+      marginBottom: 8,
+    },
+    modalStars: { fontSize: 32, color: theme.star, marginBottom: 8 },
+    modalSubtitle: {
+      fontSize: 15,
+      color: theme.inkLight,
+      marginBottom: 20,
+      textAlign: "center",
+    },
+    modalButtons: { flexDirection: "row", gap: 10 },
+    modalButtonsColumn: { width: "100%", gap: 10, marginTop: 8 },
+    modalButtonSecondary: {
+      backgroundColor: theme.panel,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 12,
+      alignItems: "center",
+    },
+    modalButtonSecondaryText: { color: theme.ink, fontWeight: "700" },
+    modalButtonPrimary: {
+      backgroundColor: theme.gold,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 12,
+      alignItems: "center",
+    },
+    modalButtonPrimaryText: { color: theme.onAccent, fontWeight: "700" },
+    modalActionBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: theme.panel,
+      borderRadius: 999,
+      paddingHorizontal: 4,
+      paddingVertical: 4,
+      marginTop: 20,
+    },
+    modalActionItem: {
+      width: 52,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    modalActionDivider: {
+      width: StyleSheet.hairlineWidth,
+      height: 18,
+      backgroundColor: theme.panelBorder,
+    },
+    modalButtonGhost: { paddingVertical: 10, alignItems: "center" },
+    modalButtonGhostText: { color: theme.inkLight, fontWeight: "600" },
+  });

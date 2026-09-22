@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(pwd)"
-RAW="$ROOT/raw"
+RAW="$ROOT/clean"
 OUT="$ROOT/out"
 mkdir -p "$OUT"
 
@@ -19,8 +19,10 @@ PAD=90           # side padding around the screenshot
 
 # filename in raw/  |  caption text
 FRAMES=(
-  "level17.png|Slide the arrows to clear the maze"
-  "level18.png|Hundreds of hand-crafted levels"
+  "light-game.png|Tap arrows to escape the maze"
+  "light-home.png|Endless levels, Easy to Hard"
+  "dark-game.png|Play in light or dark"
+  "dark-settings.png|Follows your phone's theme"
 )
 
 frame() {
@@ -37,6 +39,8 @@ frame() {
   local x=$(((CANVAS_W - dispW)/2))
   local y=$((CAP_BAND + (availH - dispH)/2))
   local svg="$OUT/.$out.svg"
+  # Inline as a data URI - librsvg blocks external file:// references.
+  local data_uri="data:image/png;base64,$(base64 < "$img" | tr -d '\n')"
   cat > "$svg" <<EOF
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="$CANVAS_W" height="$CANVAS_H" viewBox="0 0 $CANVAS_W $CANVAS_H">
   <defs>
@@ -48,11 +52,11 @@ frame() {
   <rect width="$CANVAS_W" height="$CANVAS_H" fill="url(#bg)"/>
   <text x="$((CANVAS_W/2))" y="$CAP_TOP" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="68" font-weight="800" fill="#3D2B1F">$caption</text>
   <rect x="$x" y="$((y+16))" width="$dispW" height="$dispH" rx="52" fill="#000000" opacity="0.12"/>
-  <image xlink:href="file://$img" x="$x" y="$y" width="$dispW" height="$dispH" clip-path="url(#round)" preserveAspectRatio="xMidYMid slice"/>
+  <image xlink:href="$data_uri" x="$x" y="$y" width="$dispW" height="$dispH" clip-path="url(#round)" preserveAspectRatio="xMidYMid slice"/>
   <rect x="$x" y="$y" width="$dispW" height="$dispH" rx="52" fill="none" stroke="#D6C09B" stroke-width="5"/>
 </svg>
 EOF
-  rsvg-convert -w "$CANVAS_W" -h "$CANVAS_H" "$svg" -o "$OUT/$out.png"
+  rsvg-convert --unlimited -w "$CANVAS_W" -h "$CANVAS_H" "$svg" -o "$OUT/$out.png"
   rm -f "$svg"
   echo "wrote $OUT/$out.png"
 }

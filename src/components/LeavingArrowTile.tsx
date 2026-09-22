@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Animated, Easing, StyleSheet } from "react-native";
 import { ArrowCell, Cell } from "../game/types";
 import { DIRECTION_OFFSET } from "../game/direction";
-import { theme } from "../theme/colors";
+import { useTheme } from "../theme/ThemeContext";
 import AnimatedArrowFrames from "./AnimatedArrowFrames";
 import { buildArrowFrames, capFrames } from "./arrowFrames";
 
@@ -47,6 +47,7 @@ export default function LeavingArrowTile({
   travelDistance,
   onDone,
 }: LeavingArrowTileProps) {
+  const theme = useTheme();
   // Phase A drives `morph` (0..last morph frame); Phase B drives `glide` (0..1).
   const morph = useRef(new Animated.Value(0)).current;
   const glide = useRef(new Animated.Value(0)).current;

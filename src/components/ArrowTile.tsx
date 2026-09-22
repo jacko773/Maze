@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet } from "react-native";
 import Svg, { Path, Polygon } from "react-native-svg";
 import { ArrowCell, Cell } from "../game/types";
-import { theme } from "../theme/colors";
+import { useTheme } from "../theme/ThemeContext";
 import { DIRECTION_OFFSET } from "../game/direction";
 import { buildArrowShape } from "./arrowShape";
 import AnimatedArrowFrames from "./AnimatedArrowFrames";
@@ -94,6 +94,7 @@ function ArrowTile({
   bumpDistance,
   onPress,
 }: ArrowTileProps) {
+  const theme = useTheme();
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const bumpT = useRef(new Animated.Value(0)).current;
   const prevBumpNonce = useRef(bumpNonce);
