@@ -72,18 +72,24 @@ const SUPER_HARD_BLOCK_CHANCE = 1.0; // was 0.85 - every placement tries to bloc
 // (i.e. everything currently placed is already blocked), so generation still terminates.
 
 // Levels 1-20 felt too easy on their own difficulty curve, so every generation input
-// (size/density/tailLengthBias/blockChance/difficulty label) is computed from
+// (size/density/tailLengthBias/blockChance) is computed from
 // `level + LEVEL_OFFSET` instead of the raw level number - i.e. level 1 now plays like
 // the old level 21, level 2 like the old level 22, etc. The displayed `level` field
 // itself is untouched (still starts at 1), only the difficulty curve is shifted.
 const LEVEL_OFFSET = 20;
 
-/** Easy (<=10) / Medium (<=20) / Hard (<=50) / Super Hard (50+), purely from the level
- * number. Used for any procedurally-generated level, and as the fallback for a
- * hand-authored one that doesn't specify its own `difficulty`. */
-function deriveDifficultyFromLevel(level: number): Difficulty {
-  if (level <= EASY_LEVEL_MAX) return "Easy";
-  if (level <= MEDIUM_LEVEL_MAX) return "Medium";
+// Displayed difficulty label thresholds, on the RAW level number the player sees. These
+// are deliberately separate from the `*_LEVEL_MAX` generation tiers above, which run on
+// the offset level and would otherwise label everything "Hard" from level 1.
+const EASY_LABEL_MAX_LEVEL = 19;
+const MEDIUM_LABEL_MAX_LEVEL = 99;
+
+/** Easy (<20) / Medium (<100) / Hard (100+) from the level number the player sees. The
+ * single source of truth for the label on the home screen and the level-complete card;
+ * also the fallback for a hand-authored level that doesn't specify its own `difficulty`. */
+export function deriveDifficultyFromLevel(level: number): Difficulty {
+  if (level <= EASY_LABEL_MAX_LEVEL) return "Easy";
+  if (level <= MEDIUM_LABEL_MAX_LEVEL) return "Medium";
   return "Hard";
 }
 
@@ -118,10 +124,9 @@ export function getLevelConfig(level: number): LevelConfig {
   }
 
   const effectiveLevel = level + LEVEL_OFFSET;
-  // Board size follows the raw `level` (hand-tuned breakpoints below), while the
-  // difficulty inputs (density / tailLengthBias / blockChance / difficulty label)
-  // continue to use `effectiveLevel` so early levels still feel challenging without
-  // being tiny.
+  // Board size and the displayed difficulty label follow the raw `level` (hand-tuned
+  // breakpoints), while the generation inputs (density / tailLengthBias / blockChance)
+  // use `effectiveLevel` so early levels still feel challenging without being tiny.
   const cols = computeColsForLevel(level);
   const rows = Math.min(Math.round(cols * ROWS_PER_COL_RATIO), MAX_ROWS);
   const density = Math.min(
@@ -150,6 +155,6 @@ export function getLevelConfig(level: number): LevelConfig {
     seed: effectiveLevel * 7919 + 13,
     tailLengthBias,
     blockChance,
-    difficulty: deriveDifficultyFromLevel(effectiveLevel),
+    difficulty: deriveDifficultyFromLevel(level),
   };
 }

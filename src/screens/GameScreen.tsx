@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Board from "../components/Board";
+import LevelCompleteModal from "../components/LevelCompleteModal";
 import {
   findBlockerWithDistance,
   generateLevelBoard,
@@ -30,11 +31,7 @@ import {
 } from "../game/levelConfigs";
 import { ArrowCell, Cell, LevelConfig } from "../game/types";
 import { saveLevelResult, starsForMistakes } from "../storage/progress";
-import {
-  openStoreListing,
-  requestReviewAfterMilestone,
-  shareApp,
-} from "../utils/appLinks";
+import { requestReviewAfterMilestone } from "../utils/appLinks";
 import { haptics } from "../utils/haptics";
 import { Theme } from "../theme/colors";
 import { useTheme, useThemedStyles } from "../theme/ThemeContext";
@@ -459,7 +456,6 @@ export default function GameScreen({
   }
 
   const stars = starsForMistakes(mistakes);
-  const hasNextLevel = true;
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -788,79 +784,15 @@ export default function GameScreen({
         </View>
       </Modal>
 
-      <Modal visible={showWin} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Level Complete!</Text>
-            <Text style={styles.modalStars}>
-              {"\u2605".repeat(stars)}
-              {"\u2606".repeat(3 - stars)}
-            </Text>
-            <Text style={styles.modalSubtitle}>Mistakes: {mistakes}</Text>
-            <View style={styles.modalButtons}>
-              {stars === 3 ? (
-                hasNextLevel ? (
-                  <TouchableOpacity
-                    style={styles.modalButtonPrimary}
-                    onPress={handleNextLevel}
-                  >
-                    <Text style={styles.modalButtonPrimaryText}>Next</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.modalButtonPrimary}
-                    onPress={onExit}
-                  >
-                    <Text style={styles.modalButtonPrimaryText}>Finish</Text>
-                  </TouchableOpacity>
-                )
-              ) : (
-                <>
-                  <TouchableOpacity
-                    style={styles.modalButtonSecondary}
-                    onPress={handleRestart}
-                  >
-                    <Text style={styles.modalButtonSecondaryText}>Retry</Text>
-                  </TouchableOpacity>
-                  {hasNextLevel && (
-                    <TouchableOpacity
-                      style={styles.modalButtonPrimary}
-                      onPress={handleNextLevel}
-                    >
-                      <Text style={styles.modalButtonPrimaryText}>Next</Text>
-                    </TouchableOpacity>
-                  )}
-                </>
-              )}
-            </View>
-            <View style={styles.modalActionBar}>
-              <TouchableOpacity
-                onPress={shareApp}
-                style={styles.modalActionItem}
-                activeOpacity={0.6}
-                accessibilityRole="button"
-                accessibilityLabel="Share Arrow Maze"
-              >
-                <Ionicons
-                  name="share-social-outline"
-                  size={18}
-                  color={theme.ink}
-                />
-              </TouchableOpacity>
-              <View style={styles.modalActionDivider} />
-              <TouchableOpacity
-                onPress={openStoreListing}
-                style={styles.modalActionItem}
-                activeOpacity={0.6}
-                accessibilityRole="button"
-                accessibilityLabel="Rate Arrow Maze"
-              >
-                <Ionicons name="star-outline" size={18} color={theme.ink} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <LevelCompleteModal
+        visible={showWin}
+        level={level}
+        difficulty={config.difficulty}
+        stars={stars}
+        mistakes={mistakes}
+        onNext={handleNextLevel}
+        onRetry={handleRestart}
+      />
     </SafeAreaView>
   );
 }
@@ -973,14 +905,12 @@ const createStyles = (theme: Theme) =>
       color: theme.ink,
       marginBottom: 8,
     },
-    modalStars: { fontSize: 32, color: theme.star, marginBottom: 8 },
     modalSubtitle: {
       fontSize: 15,
       color: theme.inkLight,
       marginBottom: 20,
       textAlign: "center",
     },
-    modalButtons: { flexDirection: "row", gap: 10 },
     modalButtonsColumn: { width: "100%", gap: 10, marginTop: 8 },
     modalButtonSecondary: {
       backgroundColor: theme.panel,
@@ -998,26 +928,6 @@ const createStyles = (theme: Theme) =>
       alignItems: "center",
     },
     modalButtonPrimaryText: { color: theme.onAccent, fontWeight: "700" },
-    modalActionBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: theme.panel,
-      borderRadius: 999,
-      paddingHorizontal: 4,
-      paddingVertical: 4,
-      marginTop: 20,
-    },
-    modalActionItem: {
-      width: 52,
-      height: 36,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    modalActionDivider: {
-      width: StyleSheet.hairlineWidth,
-      height: 18,
-      backgroundColor: theme.panelBorder,
-    },
     modalButtonGhost: { paddingVertical: 10, alignItems: "center" },
     modalButtonGhostText: { color: theme.inkLight, fontWeight: "600" },
   });

@@ -53,33 +53,33 @@ export const lightTheme: Theme = {
   statusBarStyle: "dark-content",
 };
 
-/** "Moss": a deep forest ground with a chalk ink, so arrows read like chalk on a
- * green board, and a single apricot accent for everything tappable. Droplets and
- * the level title share the ink so the game screen stays two colours plus ground.
- * `blocked` and `hint` stay red/green because they are gameplay feedback, not decor.
- * Filled controls use `onAccent` (dark text) rather than `white`. */
+/** "Noir": ink-black ground with a slate panel and a single blush accent, from
+ * Adobe Color's "Soaked in luxury 2" (#07050D #151426 #404959 #D9B6A3 #A68072).
+ * Arrows, droplets and the level title share a warm chalk ink so the game screen
+ * stays two colours plus ground. `blocked` and `hint` stay red/green because they
+ * are gameplay feedback, not decor. Filled controls use `onAccent` (dark text). */
 export const darkTheme: Theme = {
-  background: "#0E1712",
-  boardBackground: "#0E1712",
-  gridLine: "#182620",
-  gridLineStrong: "#2F4839",
-  ink: "#EAF0DC",
-  inkLight: "#A7B79A",
+  background: "#0C0B16",
+  boardBackground: "#0C0B16",
+  gridLine: "#151426",
+  gridLineStrong: "#2A2F40",
+  ink: "#EDE3DC",
+  inkLight: "#A68072",
   blocked: "#F06B7E",
-  gold: "#F4A261",
-  goldDark: "#C97F45",
+  gold: "#D9B6A3",
+  goldDark: "#A68072",
   hint: "#7EF0C0",
   hintLight: "#B2F7DA",
-  panel: "#1E3026",
-  panelBorder: "#2F4839",
-  cardBrown: "#3C5446",
-  cardBrownLight: "#4B6656",
-  cardLocked: "#2A3A31",
-  white: "#17261E",
-  droplet: "#EAF0DC",
-  star: "#F7B98A",
-  accent: "#F4A261",
-  onAccent: "#1A0F05",
-  overlay: "rgba(3,8,5,0.62)",
+  panel: "#151426",
+  panelBorder: "#404959",
+  cardBrown: "#2B2D40",
+  cardBrownLight: "#404959",
+  cardLocked: "#1B1B2C",
+  white: "#151426",
+  droplet: "#EDE3DC",
+  star: "#EBD0C2",
+  accent: "#D9B6A3",
+  onAccent: "#1A1210",
+  overlay: "rgba(4,3,10,0.64)",
   statusBarStyle: "light-content",
 };

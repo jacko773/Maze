@@ -108,13 +108,7 @@ export default function HomeScreen({
           activeOpacity={0.85}
           disabled={!loaded}
         >
-          <Text style={styles.playButtonText}>
-            {currentLevel < 20
-              ? "Easy"
-              : currentLevel < 100
-                ? "Medium"
-                : "Hard"}
-          </Text>
+          <Text style={styles.playButtonText}>{currentDifficulty}</Text>
           <Text style={styles.playButtonSubtext}>Level {currentLevel}</Text>
         </TouchableOpacity>
       </View>
